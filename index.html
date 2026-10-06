@@ -383,6 +383,7 @@
     border-bottom-right-radius: 4px;
   }
   .demo-bubble.is-visible { opacity: 1; }
+  .demo-ghost { visibility: hidden; }
   .demo-typing {
     align-self: flex-start;
     display: flex;
@@ -1595,40 +1596,54 @@
       demoOut.classList.add('is-visible');
       if (demoMeta) demoMeta.classList.add('is-visible');
     } else {
-      (function playCycle() {
+      // Full text is always in the layout (rest stays invisible), so the widget never changes height.
+      demoIn.textContent = inText;
+      demoOut.innerHTML = '<span class="demo-typed"></span><span class="demo-ghost"></span>';
+      var typedEl = demoOut.firstChild;
+      var ghostEl = demoOut.lastChild;
+      var demoTimers = [];
+      var typer = null;
+      function later(fn, ms) { demoTimers.push(setTimeout(fn, ms)); }
+      function stopCycle() {
+        demoTimers.forEach(clearTimeout);
+        demoTimers = [];
+        clearInterval(typer);
+      }
+
+      function playCycle() {
+        stopCycle();
         demoIn.classList.remove('is-visible');
         demoTyping.classList.remove('is-visible');
         demoOut.classList.remove('is-visible');
-        demoOut.textContent = '';
+        typedEl.textContent = '';
+        ghostEl.textContent = outText;
         if (demoMeta) demoMeta.classList.remove('is-visible');
 
-        setTimeout(function () {
-          demoIn.textContent = inText;
-          demoIn.classList.add('is-visible');
-        }, 500);
-
-        setTimeout(function () {
-          demoTyping.classList.add('is-visible');
-        }, 1700);
-
-        setTimeout(function () {
+        later(function () { demoIn.classList.add('is-visible'); }, 500);
+        later(function () { demoTyping.classList.add('is-visible'); }, 1700);
+        later(function () {
           demoTyping.classList.remove('is-visible');
           demoOut.classList.add('is-visible');
           var i = 0;
-          var typer = setInterval(function () {
-            demoOut.textContent = outText.slice(0, i + 1);
+          typer = setInterval(function () {
             i++;
+            typedEl.textContent = outText.slice(0, i);
+            ghostEl.textContent = outText.slice(i);
             if (i >= outText.length) {
               clearInterval(typer);
-              if (demoMeta) {
-                setTimeout(function () { demoMeta.classList.add('is-visible'); }, 250);
-              }
+              if (demoMeta) later(function () { demoMeta.classList.add('is-visible'); }, 250);
             }
           }, 22);
         }, 3100);
+        later(playCycle, 8600);
+      }
 
-        setTimeout(playCycle, 8600);
-      })();
+      // Background tabs throttle timers; restart cleanly instead of letting cycles pile up.
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) stopCycle();
+        else playCycle();
+      });
+      playCycle();
     }
   }
 
@@ -1749,6 +1764,27 @@
   tabs.forEach(function (tb, i) {
     tb.addEventListener('click', function () { auto = false; idx = i; play(tb.getAttribute('data-ch')); });
   });
+
+  // Reserve the height of the tallest finished scene so the page below doesn't jump while messages appear.
+  function reserveHeight() {
+    var probe = body.cloneNode(false);
+    probe.removeAttribute('id');
+    probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;min-height:0;width:' + body.clientWidth + 'px';
+    body.parentNode.style.position = 'relative';
+    body.parentNode.appendChild(probe);
+    var max = 0;
+    Object.keys(scenes).forEach(function (k) {
+      probe.innerHTML = '';
+      scenes[k].steps.forEach(function (st) { probe.appendChild(node(st)); });
+      max = Math.max(max, probe.offsetHeight);
+    });
+    probe.remove();
+    body.style.minHeight = max + 'px';
+  }
+  reserveHeight();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(reserveHeight);
+  var resizeTimer;
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(reserveHeight, 150); });
 
   function start() { if (started) return; started = true; play('wa'); }
   if (reduce || !('IntersectionObserver' in window)) { start(); return; }
